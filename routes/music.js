@@ -4,29 +4,51 @@ const Music = require('../models/Music');
 const path = require('path');
 const fs = require('fs');
 
-// Get music list
+// Get all music tracks
 router.get('/', async (req, res) => {
-  const music = await Music.find();
-  res.json(music);
+  try {
+    const music = await Music.find();
+    res.json(music);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error fetching music' });
+  }
+});
+
+// Get a single music track by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const track = await Music.findById(req.params.id);
+    if (!track) return res.status(404).json({ message: 'Music not found' });
+    res.json(track);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error fetching music' });
+  }
 });
 
 // Download single music file
 router.get('/:id/download', async (req, res) => {
-  const track = await Music.findById(req.params.id);
-  if (!track) return res.status(404).send('Music not found');
-  const filePath = path.join(__dirname, '../uploads', track.fileUrl);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).send('File not found');
+  try {
+    const track = await Music.findById(req.params.id);
+    if (!track) return res.status(404).send('Music not found');
+    const filePath = path.join(__dirname, '../uploads', track.fileUrl);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send('File not found');
+    }
+    res.download(filePath, track.title + '.mp3');
+  } catch (err) {
+    res.status(500).send('Server error during download');
   }
-  res.download(filePath, track.title + '.mp3');
 });
 
-// In routes/music.js add:
+// Create new music metadata
 router.post('/', async (req, res) => {
-  const music = new Music(req.body);
-  await music.save();
-  res.status(201).json(music);
+  try {
+    const music = new Music(req.body);
+    await music.save();
+    res.status(201).json(music);
+  } catch (err) {
+    res.status(400).json({ message: 'Error saving music', error: err.message });
+  }
 });
-
 
 module.exports = router;
