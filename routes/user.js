@@ -1,11 +1,67 @@
 const express = require('express');
+const path = require('path');
 const router = express.Router();
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer'); 
 const verifyToken = require('../middleware/auth');
 
-// Register
+
+// Multer storage config for profile pictures
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, path.join(__dirname, '..', 'uploads', 'profile_pictures'));
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, Date.now() + '-' + Math.round(Math.random() * 1e9) + ext);
+  },
+});
+const upload = multer({ storage });
+
+// Update profile picture - upload and save filename as user attribute
+router.put(
+    '/me/profile-picture', 
+    verifyToken,
+
+    // NEW: Manual execution of Multer to catch its specific errors
+    (req, res, next) => {
+        upload.single('profilePicture')(req, res, (err) => {
+            if (err instanceof multer.MulterError) {
+                // A Multer error occurred (e.g., file size limit, wrong field name)
+                console.error('Multer Error:', err);
+                return res.status(400).json({ success: false, message: 'File upload error: ' + err.code });
+            } else if (err) {
+                // An unknown error occurred
+                console.error('Unknown Upload Error:', err);
+                return res.status(500).json({ success: false, message: 'An unexpected error occurred during upload.' });
+            }
+            // If no error, proceed to the next middleware/route handler
+            next();
+        });
+    },
+
+    // Final route handler
+    async (req, res) => {
+        try {
+            // This is reached only if Multer succeeded
+            if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+            const filename = req.file.filename;
+            const filepath = `/uploads/profile_pictures/${filename}`;
+
+            // Save the path to the database
+            await User.findByIdAndUpdate(req.user.id, { profilePicture: filepath });
+
+            res.json({ success: true, profilePicture: filepath });
+        } catch (error) {
+            console.error('Profile picture update error:', error);
+            res.status(500).json({ success: false, message: 'Server error updating profile picture' });
+        }
+    }
+);
+// Register user (no profile picture related code)
 router.post('/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
@@ -24,7 +80,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Login
+// Login user
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -45,12 +101,10 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Get user profile (includes preferences, profilePicture, likedSongs)
+// Get user profile
 router.get('/me', verifyToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id)
-      .select('-passwordHash')
-      .populate('likedSongs'); // populate likedSongs details
+    const user = await User.findById(req.user.id).select('-passwordHash').populate('likedMusic');
     if (!user) return res.status(404).json({ message: 'User not found' });
     res.json(user);
   } catch (err) {
@@ -59,16 +113,14 @@ router.get('/me', verifyToken, async (req, res) => {
   }
 });
 
-// Update user profile info (username, email, profilePicture)
+// Update user profile info (no profile picture)
 router.put('/me', verifyToken, async (req, res) => {
   try {
     const updates = {};
-    const { username, email, profilePicture } = req.body;
+    const { username, email } = req.body;
 
     if (username) updates.username = username;
     if (email) updates.email = email;
-    if (profilePicture) updates.profilePicture = profilePicture;
-
     await User.findByIdAndUpdate(req.user.id, updates);
     res.json({ message: 'Profile updated' });
   } catch (err) {
@@ -77,9 +129,7 @@ router.put('/me', verifyToken, async (req, res) => {
   }
 });
 
-
-
-// Update user password
+// Update password
 router.put('/me/password', verifyToken, async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
@@ -91,8 +141,7 @@ router.put('/me/password', verifyToken, async (req, res) => {
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     const validOldPassword = await bcrypt.compare(oldPassword, user.passwordHash);
-    if (!validOldPassword)
-      return res.status(400).json({ message: 'Old password is incorrect' });
+    if (!validOldPassword) return res.status(400).json({ message: 'Old password is incorrect' });
 
     const newPasswordHash = await bcrypt.hash(newPassword, 10);
     user.passwordHash = newPasswordHash;
@@ -105,39 +154,39 @@ router.put('/me/password', verifyToken, async (req, res) => {
   }
 });
 
-// Get liked songs
-router.get('/me/liked-songs', verifyToken, async (req, res) => {
+// Get liked music
+router.get('/me/liked-music', verifyToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).populate('likedSongs');
-    res.json(user.likedSongs);
+    const user = await User.findById(req.user.id).populate('likedMusic');
+    res.json(user.likedMusic);
   } catch (err) {
-    console.error('Get liked songs error:', err);
+    console.error('Get liked music error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Like a song
-router.post('/me/liked-songs/:songId', verifyToken, async (req, res) => {
+// Like a music item
+router.post('/me/liked-music/:musicId', verifyToken, async (req, res) => {
   try {
     await User.findByIdAndUpdate(req.user.id, {
-      $addToSet: { likedSongs: req.params.songId },
+      $addToSet: { likedMusic: req.params.musicId },
     });
-    res.json({ message: 'Song liked' });
+    res.json({ message: 'Music liked' });
   } catch (err) {
-    console.error('Like song error:', err);
+    console.error('Like music error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Unlike a song
-router.delete('/me/liked-songs/:songId', verifyToken, async (req, res) => {
+// Unlike a music item
+router.delete('/me/liked-music/:musicId', verifyToken, async (req, res) => {
   try {
     await User.findByIdAndUpdate(req.user.id, {
-      $pull: { likedSongs: req.params.songId },
+      $pull: { likedMusic: req.params.musicId },
     });
-    res.json({ message: 'Song unliked' });
+    res.json({ message: 'Music unliked' });
   } catch (err) {
-    console.error('Unlike song error:', err);
+    console.error('Unlike music error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });

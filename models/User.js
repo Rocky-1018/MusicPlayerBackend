@@ -5,7 +5,8 @@ const UserSchema = new mongoose.Schema({
   email: { type: String, unique: true, required: true },
   passwordHash: String,
   profilePicture: { type: String, default: '' },
-  likedSongs: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Music' }],
+  likedMusic: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Music' }],
+
 });
 
 module.exports = mongoose.model('User', UserSchema);
