@@ -54,20 +54,32 @@ router.post('/', async (req, res) => {
 });
 
 // Upload a new song (file + metadata)
-router.post('/upload', upload.single('file'), async (req, res) => {
+router.post('/upload', upload.fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'coverArt', maxCount: 1 }
+]), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ message: 'File required' });
+    if (!req.files || !req.files.file || req.files.file.length === 0) {
+      return res.status(400).json({ message: 'Audio file required' });
+    }
+    if (!req.files.coverArt || req.files.coverArt.length === 0) {
+      return res.status(400).json({ message: 'Cover art image required' });
     }
 
     const { title, artist, album, duration } = req.body;
-    const fileUrl = req.file.filename; // Saves filename for download later
+
+    // Audio file information
+    const audioFile = req.files.file[0];
+    // Cover art information
+    const coverFile = req.files.coverArt[0];
 
     const music = new Music({
-      title, artist, album,
-      fileUrl,
+      title,
+      artist,
+      album,
       duration: duration ? Number(duration) : undefined,
-      coverArt: req.body.coverArt || ''
+      fileUrl: audioFile.filename, // save audio file name/path
+      coverArt: coverFile.filename, // save cover art file name/path
     });
 
     await music.save();
@@ -76,6 +88,5 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     res.status(500).json({ message: 'Error uploading song', error: err.message });
   }
 });
-
 
 module.exports = router;
