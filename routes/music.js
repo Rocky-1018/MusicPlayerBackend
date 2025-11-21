@@ -3,7 +3,9 @@ const router = express.Router();
 const Music = require('../models/Music');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
 
+const upload = multer({ dest: 'uploads/' });
 // Get all music tracks
 router.get('/', async (req, res) => {
   try {
@@ -50,5 +52,30 @@ router.post('/', async (req, res) => {
     res.status(400).json({ message: 'Error saving music', error: err.message });
   }
 });
+
+// Upload a new song (file + metadata)
+router.post('/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'File required' });
+    }
+
+    const { title, artist, album, duration } = req.body;
+    const fileUrl = req.file.filename; // Saves filename for download later
+
+    const music = new Music({
+      title, artist, album,
+      fileUrl,
+      duration: duration ? Number(duration) : undefined,
+      coverArt: req.body.coverArt || ''
+    });
+
+    await music.save();
+    res.status(201).json(music);
+  } catch (err) {
+    res.status(500).json({ message: 'Error uploading song', error: err.message });
+  }
+});
+
 
 module.exports = router;
