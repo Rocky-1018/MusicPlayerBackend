@@ -5,7 +5,33 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 
-const upload = multer({ dest: 'uploads/' });
+// Multer storage config with absolute folders and filename handling
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (file.fieldname === 'file') {
+      const songsPath = path.join(__dirname, '..', 'uploads', 'music');
+      if (!fs.existsSync(songsPath)) fs.mkdirSync(songsPath, { recursive: true });
+      cb(null, songsPath);
+    } else if (file.fieldname === 'coverArt') {
+      const coversPath = path.join(__dirname, '..', 'uploads', 'covers');
+      if (!fs.existsSync(coversPath)) fs.mkdirSync(coversPath, { recursive: true });
+      cb(null, coversPath);
+    } else {
+      const othersPath = path.join(__dirname, '..', 'uploads', 'others');
+      if (!fs.existsSync(othersPath)) fs.mkdirSync(othersPath, { recursive: true });
+      cb(null, othersPath);
+    }
+  },
+  filename: (req, file, cb) => {
+    // Sanitize original filename: replace spaces with underscores
+    let originalName = file.originalname.replace(/\s+/g, '_');
+    cb(null, originalName);
+  },
+});
+
+
+const upload = multer({ storage });
+
 // Get all music tracks
 router.get('/', async (req, res) => {
   try {
@@ -32,17 +58,18 @@ router.get('/:id/download', async (req, res) => {
   try {
     const track = await Music.findById(req.params.id);
     if (!track) return res.status(404).send('Music not found');
-    const filePath = path.join(__dirname, '../uploads', track.fileUrl);
+
+    const filePath = path.join(__dirname, '../uploads/music', track.fileUrl);
     if (!fs.existsSync(filePath)) {
       return res.status(404).send('File not found');
     }
-    res.download(filePath, track.title + '.mp3');
+    res.download(filePath, track.title + path.extname(track.fileUrl));
   } catch (err) {
     res.status(500).send('Server error during download');
   }
 });
 
-// Create new music metadata
+// Create new music metadata without files
 router.post('/', async (req, res) => {
   try {
     const music = new Music(req.body);
@@ -53,7 +80,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Upload a new song (file + metadata)
+// Upload new song with audio file + coverArt + metadata
 router.post('/upload', upload.fields([
   { name: 'file', maxCount: 1 },
   { name: 'coverArt', maxCount: 1 }
@@ -68,9 +95,7 @@ router.post('/upload', upload.fields([
 
     const { title, artist, album, duration } = req.body;
 
-    // Audio file information
     const audioFile = req.files.file[0];
-    // Cover art information
     const coverFile = req.files.coverArt[0];
 
     const music = new Music({
@@ -78,8 +103,17 @@ router.post('/upload', upload.fields([
       artist,
       album,
       duration: duration ? Number(duration) : undefined,
-      fileUrl: audioFile.filename, // save audio file name/path
-      coverArt: coverFile.filename, // save cover art file name/path
+      fileUrl: audioFile.filename,
+      coverArt: coverFile.filename,
+    });
+
+    console.log('Saving music with:', {
+      title,
+      artist,
+      album,
+      duration,
+      fileUrl: audioFile.filename,
+      coverArt: coverFile.filename,
     });
 
     await music.save();
